@@ -1,15 +1,23 @@
 import { Component } from '@angular/core';
 import * as THREE from 'three';
 import { OrbitControls} from 'three/examples/jsm/controls/OrbitControls';
-import { Mesh, SphereGeometry } from 'three';
+import { BoxGeometry, Mesh, MeshBasicMaterial, SphereGeometry, TextureLoader, Vector2 } from 'three';
 import { Moon } from './model/moon.model';
 import { NightSkyController } from './controller/NightSkyController';
+import { TextController } from './controller/TextController';
+import { C } from './model/constants';
 
 const SPEED_MUL = 1
-const CAMERA_FLY_SPEED: number = 50 / SPEED_MUL // Higher = slower
-const TARGET_FLY_SPEED: number = 40 / SPEED_MUL // Higher = slower
+const CAMERA_FLY_SPEED = 50 / SPEED_MUL // Higher = slower
+const TARGET_FLY_SPEED = 40 / SPEED_MUL // Higher = slower
 const BG_COLOR = new THREE.Color( 0x000000 );
-const FOV: number = 70;
+const FOV = 70;
+
+type coords = {
+  x: number,
+  y: number,
+  z: number
+}
 
 const CAMERA_START_POS = {
   x: -90000, 
@@ -27,18 +35,12 @@ const CAMERA_START_POS_MOBILE = {
   x: -101363, 
   y: -26000,
   z: -185452,
-  // x: -75000, 
-  // y: -26000,
-  // z: -80000,
 }
 
 const CAMERA_LOOK_MOBILE = {
   x: -74750, 
   y: -26000, 
   z: -79000, 
-  // x: CAMERA_START_POS_MOBILE.x + 250, 
-  // y: CAMERA_START_POS_MOBILE.y, 
-  // z: CAMERA_START_POS_MOBILE.z + 1000, 
 }
 
 const TITAN_MAP = new THREE.TextureLoader().load('./assets/maps/titan-map.jpg')
@@ -62,24 +64,30 @@ export class AppComponent {
   renderer: any;
   controls: any;
 
-  nightSky: NightSkyController = new NightSkyController(this);
+  raycaster = new THREE.Raycaster();
+  pointer = new THREE.Vector2()
+
+  nightSky = new NightSkyController(this);
+  tc = new TextController(this);
   
   saturn = this.generateSaturn(58232, SATURN_INCLINATION, SATURN_MAP);
   ring = this.generateRing(136780, 136780-74500, RING_MAP, SATURN_INCLINATION)
-  titan = new Moon(this, "Titan", 5149/2, 1221870, 0.349, 16, TITAN_MAP, 0);
-  rhea = new Moon(this, "Rhea", 5149/2, 527108, 0.327, 4.5, RHEA_MAP, 0);
-  lapetus = new Moon(this, "Lapetus", 1470/2, 3560820, 15.470, 79, LAPETUS_MAP, 0);
+  titan = new Moon(this, "Titan", C.RADIUS.titan/2, 1221870, 0.349, 16, TITAN_MAP, 0);
+  rhea = new Moon(this, "Rhea", C.RADIUS.rhea/2, 527108, 0.327, 4.5, RHEA_MAP, 0);
+  lapetus = new Moon(this, "Lapetus", C.RADIUS.lapetus/2, 3560820, 15.470, 79, LAPETUS_MAP, 0);
 
-  currentPage: string = "";
+  currentPage = "";
 
-  day: number = 65; 
-
-  useGuideLines: boolean = false;
+  day = 65; 
+  minis: any = [];
+  minisBack: any = [];
+  backs: any = [];
+  useGuideLines = false;
 
   flashlight: any;
 
-  moonTarget: string = "Saturn";
-  cameraMoving: boolean = false;
+  moonTarget = "Saturn";
+  cameraMoving = false;
 
   mobile = false;
 
@@ -89,10 +97,10 @@ export class AppComponent {
 
   constructor() {
     this.checkMobile();
-
     this.initThree(this.pos, this.look);
     this.nightSky.init();
     this.initMinis();
+    this.tc.init();
   }
 
   private initMinis() {
@@ -101,14 +109,21 @@ export class AppComponent {
       new THREE.TextureLoader().load('./assets/maps/rhea-map.jpg'),
       new THREE.TextureLoader().load('./assets/maps/lapetus-map.jpg'),
     ]
-    let minis: any = [];
 
     list.forEach((i) => {
       const g = new SphereGeometry(5, 50, 50)
       const m = new THREE.MeshStandardMaterial({
         map: i
       })
-      minis.push(new Mesh(g, m))
+      this.minis.push(new Mesh(g, m))
+
+      const g2 = new BoxGeometry(50, 10 ,1)
+      const m2 = new MeshBasicMaterial({
+        color: 0x00ff00
+      })
+      m2.transparent = true;
+      m2.opacity = 0
+      this.minisBack.push(new Mesh(g2, m2))
     });
 
     const mx = 73
@@ -116,6 +131,21 @@ export class AppComponent {
     const mz = 100
 
     this.miniPos = {
+      name: {
+        x: this.pos.x - mx + 420,
+        y: this.pos.y + my + 600,
+        z: this.pos.z + mz + 900
+      },
+      title: {
+        x: this.pos.x - mx - 210,
+        y: this.pos.y + my + 210,
+        z: this.pos.z + mz + 400
+      },
+      aboutMe: {
+        x: this.pos.x - mx + 76,
+        y: this.pos.y + my + 34,
+        z: this.pos.z + mz
+      },
       contactMe: {
         x: this.pos.x - mx,
         y: this.pos.y + my,
@@ -126,21 +156,18 @@ export class AppComponent {
         y: this.pos.y + my + 17,
         z: this.pos.z + mz
       },
-      aboutMe: {
-        x: this.pos.x - mx + 76,
-        y: this.pos.y + my + 34,
-        z: this.pos.z + mz
-      },
     }
 
-    minis[0].position.set(this.miniPos.aboutMe.x, this.miniPos.aboutMe.y, this.miniPos.aboutMe.z)
-    minis[1].position.set(this.miniPos.projects.x, this.miniPos.projects.y, this.miniPos.projects.z)
-    minis[2].position.set(this.miniPos.contactMe.x, this.miniPos.contactMe.y, this.miniPos.contactMe.z)
-    // minis[0].position.set(this.pos.x - mx, this.pos.y + my, this.pos.z + mz)
-    // minis[1].position.set(this.pos.x - mx + 35, this.pos.y + my + 17, this.pos.z + mz)
-    // minis[2].position.set(this.pos.x - mx + 76, this.pos.y + my + 34, this.pos.z + mz)
+    this.minis[0].position.set(this.miniPos.aboutMe.x, this.miniPos.aboutMe.y, this.miniPos.aboutMe.z)
+    this.minis[1].position.set(this.miniPos.projects.x, this.miniPos.projects.y, this.miniPos.projects.z)
+    this.minis[2].position.set(this.miniPos.contactMe.x, this.miniPos.contactMe.y, this.miniPos.contactMe.z)
 
-    minis.forEach((mini: any) => this.scene.add(mini))
+    this.minisBack[0].position.set(this.miniPos.aboutMe.x - 25, this.miniPos.aboutMe.y, this.miniPos.aboutMe.z)
+    this.minisBack[1].position.set(this.miniPos.projects.x - 25, this.miniPos.projects.y, this.miniPos.projects.z)
+    this.minisBack[2].position.set(this.miniPos.contactMe.x - 25, this.miniPos.contactMe.y, this.miniPos.contactMe.z)
+
+    this.minis.forEach((mini: any) => this.scene.add(mini))
+    this.minisBack.forEach((mini: any) => this.scene.add(mini))
   }
 
   private checkMobile() {
@@ -154,8 +181,9 @@ export class AppComponent {
     this.mobile = true;
   }
 
-  private initThree(pos: any, look: any): void {
+  private initThree(pos: coords, look: coords): void {
     this.camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 0.1, 500000000000000000);
+    if (!this.mobile) this.camera.zoom = window.innerWidth / 1512
     this.camera.position.set(pos.x, pos.y, pos.z)
     this.renderer = new THREE.WebGLRenderer({
       antialias: true, 
@@ -166,28 +194,71 @@ export class AppComponent {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     const controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls = controls;
-    this.controls.target.x = look.x,
-    this.controls.target.y = look.y,
-    this.controls.target.z = look.z,
+    this.controls.target.set(look.x, look.y, look.z)
+    this.controls.enableDamping = true
+    this.controls.enableZoom = false; 
+    this.controls.enablePan = false; 
+    this.controls.enableRotate = false; 
     this.initSun();
     document.body.appendChild(this.renderer.domElement);
-
     let app = this
+    window.addEventListener( 'pointermove', (event) => {
+      this.pointer.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+      this.pointer.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+    });
+    window.addEventListener( 'click', (event) => {
+      this.pointer.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+      this.pointer.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+      this.click();
+    });
     var animate = function () {
-      requestAnimationFrame(animate);
       app.hamster();
+      requestAnimationFrame(animate);
     };
+
     animate();
   }
 
+  private click() {
+    this.raycaster.setFromCamera( this.pointer, this.camera );
+
+    const intersects = this.raycaster.intersectObjects( this.scene.children );
+    this.removeFlashlight()
+    for ( let i = 0; i < intersects.length; i ++ ) {
+      const mesh = intersects[ i ].object
+      if (this.tc.menu.length == 0) return
+      if (mesh == this.getMesh("About me") || mesh == this.minis[0] || mesh == this.minisBack[0]) {
+        this.flyToMoon("titan")
+      } else if (mesh == this.getMesh("Projects") || mesh == this.minis[1] || mesh == this.minisBack[1]) {
+        this.flyToMoon("rhea")
+      } else if (mesh == this.getMesh("Contact me") || mesh == this.minis[2] || mesh == this.minisBack[2]) {
+        this.flyToMoon("lapetus")
+      } else {
+        const url = this.isBack(mesh)
+        if (url) {
+          if (url == "mailto") {
+            const email = document.createElement("a");
+            email.href = "mailto:jorrit.schepers1@mail.com";
+            email.click();
+          } else window.open(url);
+        }
+      }
+    }
+  }
+
+  private isBack(mesh: any) {
+    for (let i = 0; i < this.backs.length; i++) {
+      if (this.backs[i].back == mesh) return this.backs[i].url
+    }
+    return null;
+  }
+
   private initSun(): void {
-    // let sun = new THREE.PointLight(0xaaaaaa);
     let sun = new THREE.PointLight(0xffffff);
     sun.position.x = -1000000000
     this.flashlight = new THREE.PointLight(0xffffff);
-    // this.flashlight.position.set(this.pos.x, this.pos.y, this.pos.z)
     this.flashlight.position.set(0,0,0)
-    this.flashlight.distance = 60;
+    this.flashlight.distance = 25;
     this.flashlight.decay = 0.1;
     // const pointLightHelper = new THREE.PointLightHelper( this.flashlight, 20 );
     // this.scene.add( pointLightHelper );
@@ -203,17 +274,43 @@ export class AppComponent {
     this.moveMoons([this.titan, this.rhea, this.lapetus]);
     this.rotateMesh(this.saturn, SATURN_ROTATION_SPEED);
     
-    // console.log(this.cameraPosToString(this.camera))
+    // console.log("Camera: (" + Math.round(camera.position.x) + ", " + Math.round(camera.position.y) + ", " + Math.round(camera.position.z) + ")")
     // console.log("Target: (" + Math.round(this.controls.target.x) + ", " + Math.round(this.controls.target.y) + ", " + Math.round(this.controls.target.z) + ")")
-
+    
     if (this.cameraMoving) this.moveCameraToPlanet(this.moonTarget, this.pos, this.look);
+
+    this.checkMouseHover()
 
     this.renderer.render(this.scene, this.camera);
   }
 
-  private cameraPosToString(camera: THREE.Camera): string {
-    return "Camera: (" + Math.round(camera.position.x) + ", " + Math.round(camera.position.y) + ", " + Math.round(camera.position.z) + ")"
+  private checkMouseHover(): void {
+    if (this.tc.menu.length == 0) return
+    this.raycaster.setFromCamera( this.pointer, this.camera );
 
+    const intersects = this.raycaster.intersectObjects( this.scene.children );
+    this.removeFlashlight()
+    document.body.style.cursor = 'default';    const scale = 1.2
+    for ( let i = 0; i < intersects.length; i ++ ) {
+      const mesh = intersects[ i ].object
+      if (mesh == this.getMesh("About me") || mesh == this.minis[0] || mesh == this.minisBack[0]) {
+        this.addFlashlight("aboutMe")
+      } else if (mesh == this.getMesh("Projects") || mesh == this.minis[1] || mesh == this.minisBack[1]) {
+        this.addFlashlight("projects")
+      } else if (mesh == this.getMesh("Contact me") || mesh == this.minis[2] || mesh == this.minisBack[2]) {
+        this.addFlashlight("contactMe")
+      } else if (this.isBack(mesh)) {
+        document.body.style.cursor = 'pointer';
+      }
+    }
+  }
+
+  private getMesh(key: string): THREE.Mesh {
+    for (let i = 0; i < this.tc.menu.length; i++) {
+      const element = this.tc.menu[i];
+      if (element.key == key) return element.mesh
+    }
+    return this.tc.menu[0].mesh;
   }
 
   private onWindowResize(): void {
@@ -270,13 +367,13 @@ export class AppComponent {
     });
   }
 
-  public flyToMoon(moon: string): void {
+  public flyToMoon(moonName: string): void {
     this.cameraMoving = true;
-    this.moonTarget = moon;
+    this.moonTarget = moonName;
     this.currentPage = ""
   }
 
-  private moveCameraToPlanet(moonName: string, pos: any, look: any): void {
+  private moveCameraToPlanet(moonName: string, pos: coords, look: coords): void {
     let moon: any = null;
     switch (moonName) {
       case "titan":
@@ -325,23 +422,24 @@ export class AppComponent {
     }
   }
 
-  addFlashlight(moon: string) {
-    let x = 30;
-    switch (moon) {
+  addFlashlight(moonName: string) {
+    document.body.style.cursor = 'pointer';
+    const x = 15;
+    switch (moonName) {
       case "aboutMe":
         this.flashlight.position.x = this.miniPos.aboutMe.x + x;
         this.flashlight.position.y = this.miniPos.aboutMe.y;
-        this.flashlight.position.z = this.miniPos.aboutMe.z + -x;
+        this.flashlight.position.z = this.miniPos.aboutMe.z - x;
         break;
       case "projects":
         this.flashlight.position.x = this.miniPos.projects.x + x;
         this.flashlight.position.y = this.miniPos.projects.y;
-        this.flashlight.position.z = this.miniPos.projects.z + -x;
+        this.flashlight.position.z = this.miniPos.projects.z - x;
         break;
       case "contactMe":
         this.flashlight.position.x = this.miniPos.contactMe.x + x;
         this.flashlight.position.y = this.miniPos.contactMe.y;
-        this.flashlight.position.z = this.miniPos.contactMe.z + -x;
+        this.flashlight.position.z = this.miniPos.contactMe.z - x;
     }
   } 
 
